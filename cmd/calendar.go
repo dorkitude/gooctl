@@ -251,7 +251,7 @@ Examples:
 			if dateStr == "" {
 				return fmt.Errorf("--date is required for all-day events")
 			}
-			date, err := time.Parse("2006-01-02", dateStr)
+			date, err := time.ParseInLocation("2006-01-02", dateStr, time.Local)
 			if err != nil {
 				return fmt.Errorf("invalid date format (use YYYY-MM-DD): %w", err)
 			}
@@ -265,14 +265,14 @@ Examples:
 			start, err := time.Parse(time.RFC3339, startStr)
 			if err != nil {
 				// Try simpler format
-				start, err = time.Parse("2006-01-02T15:04:05", startStr)
+				start, err = time.ParseInLocation("2006-01-02T15:04:05", startStr, time.Local)
 				if err != nil {
 					return fmt.Errorf("invalid start time format: %w", err)
 				}
 			}
 			end, err := time.Parse(time.RFC3339, endStr)
 			if err != nil {
-				end, err = time.Parse("2006-01-02T15:04:05", endStr)
+				end, err = time.ParseInLocation("2006-01-02T15:04:05", endStr, time.Local)
 				if err != nil {
 					return fmt.Errorf("invalid end time format: %w", err)
 				}
@@ -378,7 +378,7 @@ Examples:
 		if startStr != "" {
 			start, err := time.Parse(time.RFC3339, startStr)
 			if err != nil {
-				start, err = time.Parse("2006-01-02T15:04:05", startStr)
+				start, err = time.ParseInLocation("2006-01-02T15:04:05", startStr, time.Local)
 				if err != nil {
 					return fmt.Errorf("invalid start time format: %w", err)
 				}
@@ -388,7 +388,7 @@ Examples:
 		if endStr != "" {
 			end, err := time.Parse(time.RFC3339, endStr)
 			if err != nil {
-				end, err = time.Parse("2006-01-02T15:04:05", endStr)
+				end, err = time.ParseInLocation("2006-01-02T15:04:05", endStr, time.Local)
 				if err != nil {
 					return fmt.Errorf("invalid end time format: %w", err)
 				}
@@ -489,8 +489,8 @@ func init() {
 	calCreateCmd.Flags().StringP("title", "t", "", "Event title (required)")
 	calCreateCmd.Flags().StringP("description", "d", "", "Event description")
 	calCreateCmd.Flags().StringP("location", "l", "", "Event location")
-	calCreateCmd.Flags().String("start", "", "Start time (RFC3339 or YYYY-MM-DDTHH:MM:SS)")
-	calCreateCmd.Flags().String("end", "", "End time (RFC3339 or YYYY-MM-DDTHH:MM:SS)")
+	calCreateCmd.Flags().String("start", "", "Start time (RFC3339, or YYYY-MM-DDTHH:MM:SS in local time; set TZ)")
+	calCreateCmd.Flags().String("end", "", "End time (RFC3339, or YYYY-MM-DDTHH:MM:SS in local time; set TZ)")
 	calCreateCmd.Flags().String("date", "", "Date for all-day events (YYYY-MM-DD)")
 	calCreateCmd.Flags().Bool("all-day", false, "Create an all-day event")
 	calCreateCmd.Flags().String("attendees", "", "Comma-separated list of attendee emails")
@@ -502,8 +502,8 @@ func init() {
 	calUpdateCmd.Flags().StringP("title", "t", "", "New event title")
 	calUpdateCmd.Flags().StringP("description", "d", "", "New event description")
 	calUpdateCmd.Flags().StringP("location", "l", "", "New event location")
-	calUpdateCmd.Flags().String("start", "", "New start time (RFC3339 or YYYY-MM-DDTHH:MM:SS)")
-	calUpdateCmd.Flags().String("end", "", "New end time (RFC3339 or YYYY-MM-DDTHH:MM:SS)")
+	calUpdateCmd.Flags().String("start", "", "New start time (RFC3339, or YYYY-MM-DDTHH:MM:SS in local time; set TZ)")
+	calUpdateCmd.Flags().String("end", "", "New end time (RFC3339, or YYYY-MM-DDTHH:MM:SS in local time; set TZ)")
 	calUpdateCmd.Flags().Int("move-days", 0, "Move event by N days (positive=future, negative=past)")
 }
 
