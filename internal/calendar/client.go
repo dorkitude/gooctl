@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"sort"
 	"time"
 
 	"google.golang.org/api/calendar/v3"
@@ -13,31 +14,83 @@ import (
 // Client wraps the Calendar API service
 type Client struct {
 	service *calendar.Service
+	// Calendar is the calendar ID used when a call doesn't name one: "primary" by
+	// default, or "all" to read across every calendar in the account's list.
+	Calendar string
+}
+
+// AllCalendars, as a calendar ID, reads across every calendar in the account's list.
+const AllCalendars = "all"
+
+func (c *Client) cal(id string) string {
+	if id != "" {
+		return id
+	}
+	if c.Calendar != "" {
+		return c.Calendar
+	}
+	return "primary"
+}
+
+func (c *Client) single(id string) (string, error) {
+	id = c.cal(id)
+	if id == AllCalendars {
+		return "", fmt.Errorf("this command needs one calendar: pass --calendar <id> (see 'gooctl cal list')")
+	}
+	return id, nil
+}
+
+// acrossCalendars runs fetch for every calendar in the list, tags each event with
+// its calendar, and merges the results by start time.
+func (c *Client) acrossCalendars(ctx context.Context, maxResults int64, fetch func(calID string) ([]*Event, error)) ([]*Event, error) {
+	cals, err := c.ListCalendars(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var all []*Event
+	for _, cal := range cals {
+		events, err := fetch(cal.ID)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", cal.Summary, err)
+		}
+		for _, e := range events {
+			e.Calendar = cal.Summary
+			e.CalendarID = cal.ID
+		}
+		all = append(all, events...)
+	}
+	sort.SliceStable(all, func(i, j int) bool { return all[i].Start.Before(all[j].Start) })
+	if maxResults > 0 && int64(len(all)) > maxResults {
+		all = all[:maxResults]
+	}
+	return all, nil
 }
 
 // Event represents a calendar event
 type Event struct {
-	ID          string
-	Summary     string
-	Description string
-	Location    string
-	Start       time.Time
-	End         time.Time
-	AllDay      bool
-	Attendees   []string
-	HtmlLink    string
-	Status      string
-	Creator     string
-	Organizer   string
+	ID          string    `json:"id"`
+	Summary     string    `json:"summary"`
+	Description string    `json:"description,omitempty"`
+	Location    string    `json:"location,omitempty"`
+	Start       time.Time `json:"start"`
+	End         time.Time `json:"end"`
+	AllDay      bool      `json:"allDay"`
+	Attendees   []string  `json:"attendees,omitempty"`
+	HtmlLink    string    `json:"htmlLink,omitempty"`
+	Status      string    `json:"status,omitempty"`
+	Creator     string    `json:"creator,omitempty"`
+	Organizer   string    `json:"organizer,omitempty"`
+	Calendar    string    `json:"calendar,omitempty"`
+	CalendarID  string    `json:"calendarId,omitempty"`
 }
 
 // CalendarInfo represents a calendar
 type CalendarInfo struct {
-	ID          string
-	Summary     string
-	Description string
-	Primary     bool
-	AccessRole  string
+	ID          string `json:"id"`
+	Summary     string `json:"summary"`
+	Description string `json:"description,omitempty"`
+	Primary     bool   `json:"primary"`
+	AccessRole  string `json:"accessRole"`
 }
 
 // NewClient creates a new Calendar client
@@ -75,11 +128,14 @@ func (c *Client) ListCalendars(ctx context.Context) ([]*CalendarInfo, error) {
 
 // ListEvents lists events within a time range
 func (c *Client) ListEvents(ctx context.Context, calendarID string, start, end time.Time, maxResults int64) ([]*Event, error) {
-	if calendarID == "" {
-		calendarID = "primary"
-	}
+	calendarID = c.cal(calendarID)
 	if maxResults <= 0 {
 		maxResults = 10
+	}
+	if calendarID == AllCalendars {
+		return c.acrossCalendars(ctx, maxResults, func(id string) ([]*Event, error) {
+			return c.ListEvents(ctx, id, start, end, maxResults)
+		})
 	}
 
 	call := c.service.Events.List(calendarID).
@@ -107,8 +163,17 @@ func (c *Client) Search(ctx context.Context, query string, start, end time.Time,
 	if maxResults <= 0 {
 		maxResults = 10
 	}
+	return c.searchIn(ctx, c.cal(""), query, start, end, maxResults)
+}
 
-	call := c.service.Events.List("primary").
+func (c *Client) searchIn(ctx context.Context, calendarID, query string, start, end time.Time, maxResults int64) ([]*Event, error) {
+	if calendarID == AllCalendars {
+		return c.acrossCalendars(ctx, maxResults, func(id string) ([]*Event, error) {
+			return c.searchIn(ctx, id, query, start, end, maxResults)
+		})
+	}
+
+	call := c.service.Events.List(calendarID).
 		Q(query).
 		TimeMin(start.Format(time.RFC3339)).
 		TimeMax(end.Format(time.RFC3339)).
@@ -131,8 +196,9 @@ func (c *Client) Search(ctx context.Context, query string, start, end time.Time,
 
 // GetEvent retrieves a single event by ID
 func (c *Client) GetEvent(ctx context.Context, calendarID, eventID string) (*Event, error) {
-	if calendarID == "" {
-		calendarID = "primary"
+	calendarID, err := c.single(calendarID)
+	if err != nil {
+		return nil, err
 	}
 
 	item, err := c.service.Events.Get(calendarID, eventID).Context(ctx).Do()
@@ -145,8 +211,9 @@ func (c *Client) GetEvent(ctx context.Context, calendarID, eventID string) (*Eve
 
 // CreateEvent creates a new calendar event
 func (c *Client) CreateEvent(ctx context.Context, calendarID string, event *Event) (*Event, error) {
-	if calendarID == "" {
-		calendarID = "primary"
+	calendarID, err := c.single(calendarID)
+	if err != nil {
+		return nil, err
 	}
 
 	gEvent := &calendar.Event{
@@ -188,8 +255,9 @@ func (c *Client) CreateEvent(ctx context.Context, calendarID string, event *Even
 
 // UpdateEvent updates an existing event
 func (c *Client) UpdateEvent(ctx context.Context, calendarID, eventID string, event *Event) (*Event, error) {
-	if calendarID == "" {
-		calendarID = "primary"
+	calendarID, err := c.single(calendarID)
+	if err != nil {
+		return nil, err
 	}
 
 	gEvent := &calendar.Event{
@@ -224,11 +292,12 @@ func (c *Client) UpdateEvent(ctx context.Context, calendarID, eventID string, ev
 
 // DeleteEvent deletes an event
 func (c *Client) DeleteEvent(ctx context.Context, calendarID, eventID string) error {
-	if calendarID == "" {
-		calendarID = "primary"
+	calendarID, err := c.single(calendarID)
+	if err != nil {
+		return err
 	}
 
-	err := c.service.Events.Delete(calendarID, eventID).Context(ctx).Do()
+	err = c.service.Events.Delete(calendarID, eventID).Context(ctx).Do()
 	if err != nil {
 		return fmt.Errorf("failed to delete event: %w", err)
 	}
@@ -242,7 +311,7 @@ func (c *Client) Today(ctx context.Context, maxResults int64) ([]*Event, error) 
 	start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 	end := start.AddDate(0, 0, 1)
 
-	return c.ListEvents(ctx, "primary", start, end, maxResults)
+	return c.ListEvents(ctx, "", start, end, maxResults)
 }
 
 // Week returns events for the current week
@@ -251,7 +320,7 @@ func (c *Client) Week(ctx context.Context, maxResults int64) ([]*Event, error) {
 	start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 	end := start.AddDate(0, 0, 7)
 
-	return c.ListEvents(ctx, "primary", start, end, maxResults)
+	return c.ListEvents(ctx, "", start, end, maxResults)
 }
 
 // Upcoming returns upcoming events starting from now
@@ -259,7 +328,7 @@ func (c *Client) Upcoming(ctx context.Context, maxResults int64) ([]*Event, erro
 	now := time.Now()
 	end := now.AddDate(0, 1, 0) // Next month
 
-	return c.ListEvents(ctx, "primary", now, end, maxResults)
+	return c.ListEvents(ctx, "", now, end, maxResults)
 }
 
 // parseEvent converts a Calendar API event to our Event type

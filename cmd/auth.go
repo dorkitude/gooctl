@@ -18,14 +18,29 @@ var authCmd = &cobra.Command{
 var authLoginCmd = &cobra.Command{
 	Use:   "login",
 	Short: "Login with Google OAuth",
-	Long:  `Opens a browser window to authenticate with Google.`,
+	Long: `Opens a browser window to authenticate with Google.
+
+--scopes picks what to ask for: all (default; Gmail + Calendar), calendar-readonly,
+calendar (read + edit events), or comma-separated scope URLs. On a headless machine use
+--no-browser (and --url-file) and paste back the URL the browser lands on.
+Set GOOCTL_CONFIG_DIR to keep a separate identity in its own directory.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := context.Background()
+		scopeSpec, _ := cmd.Flags().GetString("scopes")
+		noBrowser, _ := cmd.Flags().GetBool("no-browser")
+		urlFile, _ := cmd.Flags().GetString("url-file")
+		loginHint, _ := cmd.Flags().GetString("login-hint")
+
+		scopes, err := auth.ResolveScopes(scopeSpec)
+		if err != nil {
+			return err
+		}
 
 		config, err := auth.NewConfig()
 		if err != nil {
 			return err
 		}
+		config.SetScopes(scopes)
 
 		// Check if already authenticated
 		if config.HasValidToken() {
@@ -36,7 +51,8 @@ var authLoginCmd = &cobra.Command{
 		fmt.Println(ui.TitleStyle.Render("🔐 Google Authentication"))
 		fmt.Println()
 
-		if err := config.Authenticate(ctx); err != nil {
+		opts := auth.LoginOptions{NoBrowser: noBrowser, URLFile: urlFile, LoginHint: loginHint}
+		if err := config.Authenticate(ctx, opts); err != nil {
 			return fmt.Errorf("authentication failed: %w", err)
 		}
 
@@ -80,6 +96,9 @@ var authStatusCmd = &cobra.Command{
 		if config.HasValidToken() {
 			fmt.Println(ui.Success("Authenticated"))
 			fmt.Println(ui.SubtleStyle.Render("Token location: " + config.TokenPath()))
+			for _, s := range config.Scopes() {
+				fmt.Println(ui.SubtleStyle.Render("Scope: " + s))
+			}
 		} else {
 			fmt.Println(ui.Warning_("Not authenticated"))
 			fmt.Println(ui.SubtleStyle.Render("Run 'gooctl auth login' to authenticate"))
@@ -138,6 +157,10 @@ var authSetupCmd = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(authCmd)
 	authCmd.AddCommand(authLoginCmd)
+	authLoginCmd.Flags().String("scopes", "all", "all | calendar-readonly | calendar | comma-separated scope URLs")
+	authLoginCmd.Flags().Bool("no-browser", false, "Headless: print the URL and paste back the redirect URL")
+	authLoginCmd.Flags().String("url-file", "", "Also write the auth URL to this file (0600)")
+	authLoginCmd.Flags().String("login-hint", "", "Google account to pre-select (email)")
 	authCmd.AddCommand(authLogoutCmd)
 	authCmd.AddCommand(authStatusCmd)
 	authCmd.AddCommand(authSetupCmd)

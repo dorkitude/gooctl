@@ -2,7 +2,9 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -35,6 +37,9 @@ var calTodayCmd = &cobra.Command{
 		events, err := client.Today(ctx, limit)
 		if err != nil {
 			return err
+		}
+		if jsonOut {
+			return printJSON(events)
 		}
 
 		if len(events) == 0 {
@@ -69,6 +74,9 @@ var calWeekCmd = &cobra.Command{
 		events, err := client.Week(ctx, limit)
 		if err != nil {
 			return err
+		}
+		if jsonOut {
+			return printJSON(events)
 		}
 
 		if len(events) == 0 {
@@ -113,6 +121,9 @@ var calUpcomingCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		if jsonOut {
+			return printJSON(events)
+		}
 
 		if len(events) == 0 {
 			fmt.Println(ui.Success("No upcoming events!"))
@@ -153,6 +164,9 @@ var calSearchCmd = &cobra.Command{
 		events, err := client.Search(ctx, query, start, end, limit)
 		if err != nil {
 			return err
+		}
+		if jsonOut {
+			return printJSON(events)
 		}
 
 		if len(events) == 0 {
@@ -418,6 +432,9 @@ var calListCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		if jsonOut {
+			return printJSON(calendars)
+		}
 
 		fmt.Println(ui.TitleStyle.Render("📅 Your Calendars"))
 		fmt.Println()
@@ -437,8 +454,21 @@ var calListCmd = &cobra.Command{
 	},
 }
 
+var (
+	calendarFlag string
+	jsonOut      bool
+)
+
+func printJSON(v any) error {
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	return enc.Encode(v)
+}
+
 func init() {
 	rootCmd.AddCommand(calendarCmd)
+	calendarCmd.PersistentFlags().StringVarP(&calendarFlag, "calendar", "c", "primary", `Calendar ID, or "all" to read every calendar in the list (see 'gooctl cal list')`)
+	calendarCmd.PersistentFlags().BoolVar(&jsonOut, "json", false, "Output JSON (list, today, week, upcoming, search)")
 
 	calendarCmd.AddCommand(calTodayCmd)
 	calTodayCmd.Flags().Int64P("limit", "n", 20, "Maximum number of results")
@@ -488,7 +518,12 @@ func getCalendarClient(ctx context.Context) (*calpkg.Client, error) {
 		return nil, err
 	}
 
-	return calpkg.NewClient(ctx, httpClient)
+	client, err := calpkg.NewClient(ctx, httpClient)
+	if err != nil {
+		return nil, err
+	}
+	client.Calendar = calendarFlag
+	return client, nil
 }
 
 func printEventSummary(event *calpkg.Event) {
@@ -508,6 +543,9 @@ func printEventSummary(event *calpkg.Event) {
 			ui.SubtleStyle.Render(strings.Repeat(" ", 20)),
 			ui.SubtleStyle.Render("📍 "+event.Location),
 		)
+	}
+	if event.Calendar != "" {
+		fmt.Printf("  %s\n", ui.SubtleStyle.Render("Calendar: "+event.Calendar+" ("+event.CalendarID+")"))
 	}
 	fmt.Printf("  %s\n", ui.SubtleStyle.Render("ID: "+event.ID))
 }

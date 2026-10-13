@@ -45,6 +45,26 @@ Then login:
 gooctl auth login
 ```
 
+### Calendar-only and headless logins
+
+Ask Google only for calendar access (no Gmail), and keep each identity in its own directory:
+
+```bash
+export GOOCTL_CONFIG_DIR=~/.config/gooctl-calendar   # holds credentials.json, token.json, scopes.json
+gooctl auth login --scopes calendar-readonly         # or: calendar (read + edit events), all (default)
+```
+
+On a machine without a browser (a VM), print the URL to a file, open it on any computer, and
+paste back the URL the browser lands on (a localhost page that won't load):
+
+```bash
+gooctl auth login --scopes calendar --no-browser --url-file /tmp/gooctl-login-url \
+  --login-hint you@example.com
+```
+
+The login uses PKCE and a random state. `gooctl auth status` lists the granted scopes.
+With a calendar-only login, `mail` commands get a 403 from Google.
+
 ## Usage
 
 ### Authentication
@@ -80,6 +100,10 @@ gooctl calendar create --title "Meeting" --start "2024-01-20T10:00:00" --end "20
 gooctl calendar create --title "Birthday" --date "2024-01-20" --all-day
 gooctl calendar delete <event-id>
 ```
+
+`--calendar <id>` (or `-c`) works on every calendar command; `--calendar all` reads across
+every calendar in `gooctl cal list` (shared and subscribed ones too). `--json` prints JSON
+for `list`, `today`, `week`, `upcoming` and `search`.
 
 Shorthand: `gooctl cal` works too!
 
