@@ -73,6 +73,7 @@ With a calendar-only login, `mail` commands get a 403 from Google.
 gooctl auth login     # Login via browser
 gooctl auth status    # Check login status
 gooctl auth logout    # Remove stored credentials
+gooctl auth logout --revoke  # Also revoke this login at Google (other logins on the same client keep working)
 ```
 
 ### Mail

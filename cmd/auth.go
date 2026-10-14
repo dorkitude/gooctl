@@ -67,11 +67,22 @@ Set GOOCTL_CONFIG_DIR to keep a separate identity in its own directory.`,
 var authLogoutCmd = &cobra.Command{
 	Use:   "logout",
 	Short: "Remove stored credentials",
-	Long:  `Removes locally stored OAuth tokens.`,
+	Long: `Removes locally stored OAuth tokens.
+
+--revoke first revokes the token at Google, so a copy elsewhere stops working too. It ends
+only this login: other logins (other machines or GOOCTL_CONFIG_DIRs) using the same OAuth
+client keep working.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		config, err := auth.NewConfig()
 		if err != nil {
 			return err
+		}
+
+		if revoke, _ := cmd.Flags().GetBool("revoke"); revoke {
+			if err := config.Revoke(context.Background()); err != nil {
+				return err
+			}
+			fmt.Println(ui.Success("Token revoked at Google."))
 		}
 
 		if err := config.Logout(); err != nil {
@@ -162,6 +173,7 @@ func init() {
 	authLoginCmd.Flags().String("url-file", "", "Also write the auth URL to this file (0600)")
 	authLoginCmd.Flags().String("login-hint", "", "Google account to pre-select (email)")
 	authCmd.AddCommand(authLogoutCmd)
+	authLogoutCmd.Flags().Bool("revoke", false, "Also revoke the token at Google (ends this login everywhere)")
 	authCmd.AddCommand(authStatusCmd)
 	authCmd.AddCommand(authSetupCmd)
 }

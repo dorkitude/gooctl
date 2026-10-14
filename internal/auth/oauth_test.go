@@ -1,8 +1,13 @@
 package auth
 
 import (
+	"context"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"golang.org/x/oauth2"
 )
 
 func TestCodeFromPaste(t *testing.T) {
@@ -47,5 +52,31 @@ func TestCalendarPresetsHaveNoGmail(t *testing.T) {
 				t.Errorf("preset %s includes %s", name, s)
 			}
 		}
+	}
+}
+
+func TestRevokeSendsRefreshToken(t *testing.T) {
+	var got string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		got = r.PostForm.Get("token")
+	}))
+	defer srv.Close()
+	old := revokeURL
+	revokeURL = srv.URL
+	defer func() { revokeURL = old }()
+
+	c := &Config{configDir: t.TempDir()}
+	if err := c.Revoke(context.Background()); err == nil {
+		t.Error("expected error with no stored token")
+	}
+	if err := c.SaveToken(&oauth2.Token{AccessToken: "at", RefreshToken: "rt"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Revoke(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got != "rt" {
+		t.Errorf("revoked %q, want refresh token", got)
 	}
 }

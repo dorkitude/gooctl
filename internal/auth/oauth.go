@@ -424,6 +424,40 @@ func (c *Config) Authenticate(ctx context.Context, opts LoginOptions) error {
 }
 
 // Logout removes the stored token
+// revokeURL is Google's OAuth token revocation endpoint (a var so tests can point it elsewhere).
+var revokeURL = "https://oauth2.googleapis.com/revoke"
+
+// Revoke revokes the stored token at Google. Revoking the refresh token ends this login
+// only; other logins that use the same OAuth client keep working.
+func (c *Config) Revoke(ctx context.Context) error {
+	token, err := c.LoadToken()
+	if err != nil {
+		return fmt.Errorf("no stored token to revoke: %w", err)
+	}
+	t := token.RefreshToken
+	if t == "" {
+		t = token.AccessToken
+	}
+	if t == "" {
+		return fmt.Errorf("stored token is empty")
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, revokeURL, strings.NewReader(url.Values{"token": {t}}.Encode()))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return fmt.Errorf("revoke failed: %s: %s", resp.Status, strings.TrimSpace(string(body)))
+	}
+	return nil
+}
+
 func (c *Config) Logout() error {
 	tokenPath := c.TokenPath()
 	if _, err := os.Stat(tokenPath); os.IsNotExist(err) {
